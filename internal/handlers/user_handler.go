@@ -111,3 +111,44 @@ func (h *UserHandler) SearchUsers(c *fiber.Ctx) error {
 
 	return response.Success(c, "Users search completed", users)
 }
+
+func (h *UserHandler) Login(c *fiber.Ctx) error {
+	var req models.LoginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "Invalid request body", err.Error())
+	}
+
+	loginResponse, err := h.userService.Login(&req)
+	if err != nil {
+		return response.BadRequest(c, "Login failed", err.Error())
+	}
+
+	return response.Success(c, "Login successful", loginResponse)
+}
+
+func (h *UserHandler) ChangePassword(c *fiber.Ctx) error {
+	userID := c.Locals("user_id").(uint)
+
+	var req models.ChangePasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.BadRequest(c, "Invalid request body", err.Error())
+	}
+
+	err := h.userService.ChangePassword(userID, &req)
+	if err != nil {
+		return response.BadRequest(c, "Failed to change password", err.Error())
+	}
+
+	return response.Success(c, "Password changed successfully", nil)
+}
+
+func (h *UserHandler) GetProfile(c *fiber.Ctx) error {
+	userID := c.Locals("user_id").(uint)
+
+	user, err := h.userService.GetUserByID(userID)
+	if err != nil {
+		return response.InternalServerError(c, "Failed to get profile", err.Error())
+	}
+
+	return response.Success(c, "Profile retrieved successfully", user)
+}

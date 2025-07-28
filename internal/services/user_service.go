@@ -5,6 +5,7 @@ import (
 
 	"github.com/yooerizkilab/library-system/internal/models"
 	"github.com/yooerizkilab/library-system/internal/repositories"
+	"github.com/yooerizkilab/library-system/pkg/utils"
 	"gorm.io/gorm"
 )
 
@@ -15,6 +16,8 @@ type UserService interface {
 	UpdateUser(id uint, req *models.UpdateUserRequest) (*models.User, error)
 	DeleteUser(id uint) error
 	SearchUsers(query string) ([]models.User, error)
+	Login(req *models.LoginRequest) (*models.LoginResponse, error)
+	ChangePassword(userID uint, req *models.ChangePasswordRequest) error
 }
 
 type userService struct {
@@ -34,6 +37,12 @@ func (s *userService) CreateUser(req *models.CreateUserRequest) (*models.User, e
 		return nil, errors.New("email already exists")
 	}
 
+	// Hash password
+	hashedPassword, err := utils.HashPassword(req.Password)
+	if err != nil {
+		return nil, errors.New("failed to hash password")
+	}
+
 	// Set default role if not provided
 	if req.Role == "" {
 		req.Role = "member"
@@ -42,6 +51,7 @@ func (s *userService) CreateUser(req *models.CreateUserRequest) (*models.User, e
 	user := &models.User{
 		Name:     req.Name,
 		Email:    req.Email,
+		Password: hashedPassword,
 		Phone:    req.Phone,
 		Address:  req.Address,
 		Role:     req.Role,
@@ -54,6 +64,69 @@ func (s *userService) CreateUser(req *models.CreateUserRequest) (*models.User, e
 	}
 
 	return user, nil
+}
+
+func (s *userService) Login(req *models.LoginRequest) (*models.LoginResponse, error) {
+	// Find user by email
+	user, err := s.userRepo.GetByEmail(req.Email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("invalid email or password")
+		}
+		return nil, err
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		return nil, errors.New("user account is deactivated")
+	}
+
+	// Verify password
+	if !utils.VerifyPassword(user.Password, req.Password) {
+		return nil, errors.New("invalid email or password")
+	}
+
+	// Generate JWT token
+	token, err := utils.GenerateToken(user.ID, user.Email, user.Role)
+	if err != nil {
+		return nil, errors.New("failed to generate token")
+	}
+
+	return &models.LoginResponse{
+		User:  user,
+		Token: token,
+	}, nil
+}
+
+func (s *userService) ChangePassword(userID uint, req *models.ChangePasswordRequest) error {
+	// Get user
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("user not found")
+		}
+		return err
+	}
+
+	// Verify current password
+	if !utils.VerifyPassword(user.Password, req.CurrentPassword) {
+		return errors.New("current password is incorrect")
+	}
+
+	// Hash new password
+	hashedPassword, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		return errors.New("failed to hash new password")
+	}
+
+	// Update password
+	user.Password = hashedPassword
+	err = s.userRepo.Update(user)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *userService) GetAllUsers() ([]models.User, error) {

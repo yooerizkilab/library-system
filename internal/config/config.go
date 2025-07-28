@@ -14,6 +14,7 @@ type Config struct {
 	DBName     string
 	AppPort    string
 	AppEnv     string
+	JWTSecret  string
 }
 
 func LoadConfig() (*Config, error) {
@@ -30,6 +31,7 @@ func LoadConfig() (*Config, error) {
 		DBName:     getEnv("DB_NAME", "library_system"),
 		AppPort:    getEnv("APP_PORT", "3000"),
 		AppEnv:     getEnv("APP_ENV", "development"),
+		JWTSecret:  getEnv("JWT_SECRET", "your-secret-key-change-this-in-production"),
 	}
 
 	return config, nil

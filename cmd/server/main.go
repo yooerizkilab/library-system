@@ -2,9 +2,11 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/yooerizkilab/library-system/internal/config"
 	"github.com/yooerizkilab/library-system/internal/database"
@@ -27,6 +29,21 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName: "Library System API v1.0.0",
 	})
+
+	// Rate limiting middleware
+	app.Use(limiter.New(limiter.Config{
+		Max:        100,             // Maximum 100 requests
+		Expiration: 1 * time.Minute, // Per minute
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP() // Rate limit per IP
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Too many requests, please try again later",
+			})
+		},
+	}))
 
 	// Middleware
 	app.Use(logger.New())

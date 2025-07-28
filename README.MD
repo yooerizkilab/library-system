@@ -5,12 +5,15 @@ REST API untuk sistem manajemen perpustakaan yang dibangun dengan Go, Fiber fram
 ## 🚀 Features
 
 - **User Management** - CRUD operations untuk pengguna dengan role-based access
+- **Authentication & Authorization** - JWT-based login system dengan role-based permissions
 - **Book Management** - Manajemen koleksi buku dengan pencarian dan kategorisasi
 - **Borrowing System** - Sistem peminjaman buku dengan tracking status
 - **Search & Filter** - Pencarian buku dan pengguna
 - **Overdue Tracking** - Pelacakan buku yang terlambat dikembalikan
+- **Rate Limiting** - API rate limiting (100 requests/minute per IP)
 - **RESTful API** - Standard REST endpoints dengan JSON responses
 - **Database Relations** - Relational database dengan GORM ORM
+- **Password Security** - Bcrypt hashing untuk keamanan password
 
 ## 🛠️ Tech Stack
 
@@ -18,8 +21,11 @@ REST API untuk sistem manajemen perpustakaan yang dibangun dengan Go, Fiber fram
 - **Framework**: Fiber v2
 - **Database**: MySQL
 - **ORM**: GORM
+- **Authentication**: JWT (golang-jwt/jwt)
+- **Password Hashing**: bcrypt
 - **Environment**: godotenv
 - **Validation**: go-playground/validator
+- **Rate Limiting**: Fiber limiter middleware
 
 ## 📁 Project Structure
 
@@ -83,6 +89,11 @@ cd library-system-api
 
 ```bash
 go mod tidy
+
+# Install additional dependencies untuk authentication
+go get github.com/golang-jwt/jwt/v5
+go get golang.org/x/crypto/bcrypt
+go get github.com/gofiber/fiber/v2/middleware/limiter
 ```
 
 ### 3. Setup Database
@@ -115,6 +126,7 @@ DB_PASSWORD=your_mysql_password
 DB_NAME=library_system
 APP_PORT=3000
 APP_ENV=development
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 ```
 
 ### 5. Run Application
@@ -130,6 +142,41 @@ go build -o bin/library-system-api cmd/server/main.go
 
 Server akan berjalan di `http://localhost:3000`
 
+### 6. Database Migration (Optional)
+
+```bash
+# Jalankan SQL migration untuk menambahkan sample users dengan password
+mysql -u root -p library_system < migration.sql
+```
+
+## 🔐 Authentication
+
+### Default Login Credentials
+
+Setelah menjalankan migration, Anda dapat menggunakan akun default:
+
+```
+Admin:
+Email: admin@library.com
+Password: password123
+
+Librarian:
+Email: librarian@library.com
+Password: password123
+
+Member:
+Email: john@example.com
+Password: password123
+```
+
+### JWT Token Usage
+
+Untuk mengakses protected endpoints, sertakan JWT token di header:
+
+```bash
+Authorization: Bearer <your_jwt_token>
+```
+
 ## 📚 API Documentation
 
 ### Base URL
@@ -138,70 +185,105 @@ Server akan berjalan di `http://localhost:3000`
 http://localhost:3000/api/v1
 ```
 
-### Authentication
+### Rate Limiting
 
-Saat ini API belum menggunakan authentication. Semua endpoints dapat diakses secara bebas.
+- Maximum: 100 requests per minute per IP
+- Response: 429 Too Many Requests when exceeded
+
+### Authentication Endpoints
+
+| Method | Endpoint         | Description       | Auth Required |
+| ------ | ---------------- | ----------------- | ------------- |
+| POST   | `/auth/login`    | User login        | No            |
+| POST   | `/auth/register` | User registration | No            |
+
+### Profile Endpoints
+
+| Method | Endpoint            | Description      | Auth Required |
+| ------ | ------------------- | ---------------- | ------------- |
+| GET    | `/profile`          | Get user profile | Yes           |
+| PUT    | `/profile/password` | Change password  | Yes           |
 
 ### Users Endpoints
 
-| Method | Endpoint                | Description     |
-| ------ | ----------------------- | --------------- |
-| POST   | `/users`                | Create new user |
-| GET    | `/users`                | Get all users   |
-| GET    | `/users/:id`            | Get user by ID  |
-| PUT    | `/users/:id`            | Update user     |
-| DELETE | `/users/:id`            | Delete user     |
-| GET    | `/users/search?q=query` | Search users    |
+| Method | Endpoint                | Description    | Auth Required | Roles            |
+| ------ | ----------------------- | -------------- | ------------- | ---------------- |
+| GET    | `/users`                | Get all users  | Yes           | Admin, Librarian |
+| GET    | `/users/:id`            | Get user by ID | Yes           | Admin, Librarian |
+| PUT    | `/users/:id`            | Update user    | Yes           | Admin, Librarian |
+| DELETE | `/users/:id`            | Delete user    | Yes           | Admin            |
+| GET    | `/users/search?q=query` | Search users   | Yes           | Admin, Librarian |
 
 ### Books Endpoints
 
-| Method | Endpoint                    | Description           |
-| ------ | --------------------------- | --------------------- |
-| POST   | `/books`                    | Create new book       |
-| GET    | `/books`                    | Get all books         |
-| GET    | `/books/:id`                | Get book by ID        |
-| PUT    | `/books/:id`                | Update book           |
-| DELETE | `/books/:id`                | Delete book           |
-| GET    | `/books/search?q=query`     | Search books          |
-| GET    | `/books/available`          | Get available books   |
-| GET    | `/books/category/:category` | Get books by category |
+| Method | Endpoint                    | Description           | Auth Required | Roles            |
+| ------ | --------------------------- | --------------------- | ------------- | ---------------- |
+| GET    | `/books`                    | Get all books         | No            | Public           |
+| GET    | `/books/:id`                | Get book by ID        | No            | Public           |
+| GET    | `/books/search?q=query`     | Search books          | No            | Public           |
+| GET    | `/books/available`          | Get available books   | No            | Public           |
+| GET    | `/books/category/:category` | Get books by category | No            | Public           |
+| POST   | `/books/manage`             | Create new book       | Yes           | Admin, Librarian |
+| PUT    | `/books/manage/:id`         | Update book           | Yes           | Admin, Librarian |
+| DELETE | `/books/manage/:id`         | Delete book           | Yes           | Admin            |
 
 ### Borrows Endpoints
 
-| Method | Endpoint                        | Description             |
-| ------ | ------------------------------- | ----------------------- |
-| POST   | `/borrows`                      | Borrow a book           |
-| GET    | `/borrows`                      | Get all borrows         |
-| GET    | `/borrows/:id`                  | Get borrow by ID        |
-| PUT    | `/borrows/:id`                  | Update borrow           |
-| PUT    | `/borrows/:id/return`           | Return a book           |
-| GET    | `/borrows/active`               | Get active borrows      |
-| GET    | `/borrows/overdue`              | Get overdue borrows     |
-| GET    | `/borrows/user/:userId`         | Get user borrows        |
-| GET    | `/borrows/book/:bookId`         | Get book borrows        |
-| GET    | `/borrows/user/:userId/history` | Get user borrow history |
+| Method | Endpoint                | Description           | Auth Required | Roles            |
+| ------ | ----------------------- | --------------------- | ------------- | ---------------- |
+| POST   | `/borrows`              | Borrow a book         | Yes           | All              |
+| GET    | `/my/borrows`           | Get my borrows        | Yes           | All              |
+| GET    | `/my/history`           | Get my borrow history | Yes           | All              |
+| GET    | `/borrows/all`          | Get all borrows       | Yes           | Admin, Librarian |
+| GET    | `/borrows/:id`          | Get borrow by ID      | Yes           | Admin, Librarian |
+| PUT    | `/borrows/:id`          | Update borrow         | Yes           | Admin, Librarian |
+| PUT    | `/borrows/:id/return`   | Return a book         | Yes           | Admin, Librarian |
+| GET    | `/borrows/active`       | Get active borrows    | Yes           | Admin, Librarian |
+| GET    | `/borrows/overdue`      | Get overdue borrows   | Yes           | Admin, Librarian |
+| GET    | `/borrows/user/:userId` | Get user borrows      | Yes           | Admin, Librarian |
+| GET    | `/borrows/book/:bookId` | Get book borrows      | Yes           | Admin, Librarian |
 
 ## 📝 API Examples
 
-### Create User
+### Login
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/users \
+curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "John Doe",
-    "email": "john@example.com",
+    "email": "admin@library.com",
+    "password": "password123"
+  }'
+```
+
+### Create User (Registration)
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "New User",
+    "email": "newuser@example.com",
+    "password": "password123",
     "phone": "081234567890",
     "address": "Jl. Example No. 123",
     "role": "member"
   }'
 ```
 
-### Create Book
+### Get Profile (Protected)
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/books \
+curl -X GET http://localhost:3000/api/v1/profile \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+### Create Book (Protected - Admin/Librarian)
+
+```bash
+curl -X POST http://localhost:3000/api/v1/books/manage \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your_jwt_token>" \
   -d '{
     "title": "Clean Code",
     "author": "Robert C. Martin",
@@ -217,11 +299,12 @@ curl -X POST http://localhost:3000/api/v1/books \
   }'
 ```
 
-### Borrow Book
+### Borrow Book (Protected)
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/borrows \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your_jwt_token>" \
   -d '{
     "user_id": 1,
     "book_id": 1,
@@ -297,10 +380,16 @@ INSERT INTO books (title, author, isbn, publisher, category, language, pages, pu
 - Cek kredensial database di file `.env`
 - Pastikan database `library_system` sudah dibuat
 
-### Port Already in Use
+### Authentication Error
 
-- Ganti port di `.env` file (APP_PORT)
-- Atau stop aplikasi yang menggunakan port tersebut
+- Pastikan JWT token valid dan belum expired
+- Cek format Authorization header: `Bearer <token>`
+- Pastikan user memiliki role yang sesuai untuk endpoint
+
+### Rate Limit Error
+
+- Tunggu 1 menit sebelum mencoba lagi
+- Atau gunakan IP address yang berbeda untuk testing
 
 ### Module Not Found
 
@@ -309,11 +398,12 @@ INSERT INTO books (title, author, isbn, publisher, category, language, pages, pu
 
 ## 🔮 Future Enhancements
 
-- [ ] JWT Authentication & Authorization
-- [ ] Role-based access control
+- [x] JWT Authentication & Authorization
+- [x] Role-based access control
+- [x] Rate limiting
+- [ ] Token refresh mechanism
 - [ ] Input validation middleware
 - [ ] Unit & integration tests
-- [ ] Rate limiting
 - [ ] File upload for book covers
 - [ ] Email notifications
 - [ ] Admin dashboard
@@ -321,6 +411,8 @@ INSERT INTO books (title, author, isbn, publisher, category, language, pages, pu
 - [ ] API documentation with Swagger
 - [ ] Docker containerization
 - [ ] CI/CD pipeline
+- [ ] Password reset functionality
+- [ ] Account verification via email
 
 ## 🤝 Contributing
 

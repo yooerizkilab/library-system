@@ -1,11 +1,13 @@
 package routes
 
 import (
-	"github.com/gofiber/fiber/v2"
 	"github.com/yooerizkilab/library-system/internal/database"
 	"github.com/yooerizkilab/library-system/internal/handlers"
+	"github.com/yooerizkilab/library-system/internal/middleware"
 	"github.com/yooerizkilab/library-system/internal/repositories"
 	"github.com/yooerizkilab/library-system/internal/services"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func SetupRoutes(app *fiber.App) {
@@ -30,36 +32,83 @@ func SetupRoutes(app *fiber.App) {
 	// API version 1
 	v1 := app.Group("/api/v1")
 
-	// User routes
-	users := v1.Group("/users")
-	users.Post("/", userHandler.CreateUser)
+	// Public routes (no authentication required)
+	auth := v1.Group("/auth")
+	auth.Post("/login", userHandler.Login)
+	auth.Post("/register", userHandler.CreateUser) // Public registration
+
+	// Public book endpoints (read-only)
+	publicBooks := v1.Group("/books")
+	publicBooks.Get("/", bookHandler.GetAllBooks)
+	publicBooks.Get("/search", bookHandler.SearchBooks)
+	publicBooks.Get("/available", bookHandler.GetAvailableBooks)
+	publicBooks.Get("/category/:category", bookHandler.GetBooksByCategory)
+	publicBooks.Get("/:id", bookHandler.GetBookByID)
+
+	// Protected routes (authentication required)
+	protected := v1.Group("", middleware.AuthRequired())
+
+	// User profile routes (authenticated users can access their own profile)
+	profile := protected.Group("/profile")
+	profile.Get("/", userHandler.GetProfile)
+	profile.Put("/password", userHandler.ChangePassword)
+
+	// User management routes (admin and librarian only)
+	users := protected.Group("/users", middleware.RoleRequired("admin", "librarian"))
 	users.Get("/", userHandler.GetAllUsers)
 	users.Get("/search", userHandler.SearchUsers)
 	users.Get("/:id", userHandler.GetUserByID)
 	users.Put("/:id", userHandler.UpdateUser)
-	users.Delete("/:id", userHandler.DeleteUser)
+	users.Delete("/:id", middleware.RoleRequired("admin"), userHandler.DeleteUser) // Only admin can delete
 
-	// Book routes
-	books := v1.Group("/books")
-	books.Post("/", bookHandler.CreateBook)
-	books.Get("/", bookHandler.GetAllBooks)
-	books.Get("/search", bookHandler.SearchBooks)
-	books.Get("/available", bookHandler.GetAvailableBooks)
-	books.Get("/category/:category", bookHandler.GetBooksByCategory)
-	books.Get("/:id", bookHandler.GetBookByID)
-	books.Put("/:id", bookHandler.UpdateBook)
-	books.Delete("/:id", bookHandler.DeleteBook)
+	// Book management routes (admin and librarian only)
+	bookManagement := protected.Group("/books/manage", middleware.RoleRequired("admin", "librarian"))
+	bookManagement.Post("/", bookHandler.CreateBook)
+	bookManagement.Put("/:id", bookHandler.UpdateBook)
+	bookManagement.Delete("/:id", middleware.RoleRequired("admin"), bookHandler.DeleteBook) // Only admin can delete
 
 	// Borrow routes
-	borrows := v1.Group("/borrows")
+	borrows := protected.Group("/borrows")
+
+	// All authenticated users can borrow books
 	borrows.Post("/", borrowHandler.BorrowBook)
-	borrows.Get("/", borrowHandler.GetAllBorrows)
-	borrows.Get("/active", borrowHandler.GetActiveBorrows)
-	borrows.Get("/overdue", borrowHandler.GetOverdueBorrows)
-	borrows.Get("/:id", borrowHandler.GetBorrowByID)
-	borrows.Put("/:id", borrowHandler.UpdateBorrow)
-	borrows.Put("/:id/return", borrowHandler.ReturnBook)
-	borrows.Get("/user/:userId", borrowHandler.GetBorrowsByUser)
-	borrows.Get("/book/:bookId", borrowHandler.GetBorrowsByBook)
-	borrows.Get("/user/:userId/history", borrowHandler.GetBorrowHistory)
+
+	// Users can view their own borrows, librarians and admins can view all
+	borrows.Get("/", func(c *fiber.Ctx) error {
+		userRole := c.Locals("user_role").(string)
+		if userRole == "member" {
+			// Members can only see their own borrows
+			// userID := c.Locals("user_id").(uint)
+			return borrowHandler.GetBorrowsByUser(c)
+		}
+		// Admins and librarians can see all borrows
+		return borrowHandler.GetAllBorrows(c)
+	})
+
+	// Librarian and admin routes for borrow management
+	borrowManagement := borrows.Group("", middleware.RoleRequired("admin", "librarian"))
+	borrowManagement.Get("/all", borrowHandler.GetAllBorrows)
+	borrowManagement.Get("/active", borrowHandler.GetActiveBorrows)
+	borrowManagement.Get("/overdue", borrowHandler.GetOverdueBorrows)
+	borrowManagement.Get("/:id", borrowHandler.GetBorrowByID)
+	borrowManagement.Put("/:id", borrowHandler.UpdateBorrow)
+	borrowManagement.Put("/:id/return", borrowHandler.ReturnBook)
+	borrowManagement.Get("/user/:userId", borrowHandler.GetBorrowsByUser)
+	borrowManagement.Get("/book/:bookId", borrowHandler.GetBorrowsByBook)
+	borrowManagement.Get("/user/:userId/history", borrowHandler.GetBorrowHistory)
+
+	// User-specific routes (users can access their own data)
+	userSpecific := protected.Group("/my")
+	userSpecific.Get("/borrows", func(c *fiber.Ctx) error {
+		// Set user ID from token to params
+		userID := c.Locals("user_id").(uint)
+		c.Params("userId", string(rune(userID)))
+		return borrowHandler.GetBorrowsByUser(c)
+	})
+	userSpecific.Get("/history", func(c *fiber.Ctx) error {
+		// Set user ID from token to params
+		userID := c.Locals("user_id").(uint)
+		c.Params("userId", string(rune(userID)))
+		return borrowHandler.GetBorrowHistory(c)
+	})
 }
